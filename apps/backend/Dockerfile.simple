@@ -13,6 +13,9 @@ COPY apps/backend ./apps/backend
 # Install all dependencies
 RUN npm install --workspace=apps/backend --workspace=packages/shared --include-workspace-root
 
+# Build the shared package so dist/ exports are available
+RUN npm run build --workspace=packages/shared
+
 # Expose port
 EXPOSE 4000
 

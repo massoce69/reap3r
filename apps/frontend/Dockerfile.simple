@@ -13,6 +13,9 @@ COPY apps/frontend ./apps/frontend
 # Install all dependencies
 RUN npm install --workspace=apps/frontend --workspace=packages/shared --include-workspace-root || npm install
 
+# Build the shared package so dist/ exports are available
+RUN npm run build --workspace=packages/shared
+
 # Expose port
 EXPOSE 3000
 
