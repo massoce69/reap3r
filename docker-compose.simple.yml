@@ -1,0 +1,128 @@
+# Docker Compose - Simplified Deployment
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: massvision-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-massvision_reap3r}
+      POSTGRES_USER: ${POSTGRES_USER:-massvision}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-massvision}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - massvision
+
+  redis:
+    image: redis:7-alpine
+    container_name: massvision-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: always
+    networks:
+      - massvision
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile.simple
+    container_name: massvision-backend
+    env_file:
+      - .env
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - massvision
+    volumes:
+      - ./apps/backend:/app/apps/backend
+      - ./packages/shared:/app/packages/shared
+      - /app/node_modules
+      - /app/apps/backend/node_modules
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile.simple
+    container_name: massvision-frontend
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: always
+    networks:
+      - massvision
+    volumes:
+      - ./apps/frontend:/app/apps/frontend
+      - ./packages/shared:/app/packages/shared
+      - /app/node_modules
+      - /app/apps/frontend/node_modules
+      - /app/apps/frontend/.next
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: massvision-prometheus
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=90d'
+    ports:
+      - "9090:9090"
+    restart: always
+    networks:
+      - massvision
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: massvision-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: always
+    networks:
+      - massvision
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  massvision:
+    driver: bridge

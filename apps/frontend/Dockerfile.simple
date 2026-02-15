@@ -1,0 +1,20 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy root package files
+COPY package.json package-lock.json* ./
+
+# Copy packages
+COPY packages ./packages
+COPY apps/frontend ./apps/frontend
+
+# Install all dependencies
+RUN npm install --workspace=apps/frontend --workspace=packages/shared --include-workspace-root || npm install
+
+# Expose port
+EXPOSE 3000
+
+# Run Next.js in dev mode
+WORKDIR /app/apps/frontend
+CMD ["npm", "run", "dev"]
