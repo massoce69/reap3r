@@ -18,7 +18,7 @@ COPY ../../packages/shared ./packages/shared
 COPY . ./apps/backend
 
 # Install dependencies
-RUN npm ci --workspace=apps/backend --include-workspace-root
+RUN npm install --workspace=apps/backend --include-workspace-root
 
 # Build shared package first
 RUN npm run build -w packages/shared 2>/dev/null || true
