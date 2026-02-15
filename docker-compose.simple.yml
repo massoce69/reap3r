@@ -71,11 +71,6 @@ services:
     restart: always
     networks:
       - massvision
-    volumes:
-      - ./apps/backend:/app/apps/backend
-      - ./packages/shared:/app/packages/shared
-      - /app/node_modules
-      - /app/apps/backend/node_modules
 
   frontend:
     build:
@@ -93,12 +88,6 @@ services:
     restart: always
     networks:
       - massvision
-    volumes:
-      - ./apps/frontend:/app/apps/frontend
-      - ./packages/shared:/app/packages/shared
-      - /app/node_modules
-      - /app/apps/frontend/node_modules
-      - /app/apps/frontend/.next
 
   prometheus:
     image: prom/prometheus:v2.51.0
