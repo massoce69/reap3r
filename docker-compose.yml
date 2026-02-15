@@ -1,0 +1,149 @@
+# ─────────────────────────────────────────────────────────────
+# MASSVISION Reap3r - Docker Compose (Development)
+# ─────────────────────────────────────────────────────────────
+version: '3.9'
+
+services:
+  # ═══════════════════════════════════════════════════════════
+  # PostgreSQL
+  # ═══════════════════════════════════════════════════════════
+  postgres:
+    image: postgres:16-alpine
+    container_name: massvision-postgres
+    environment:
+      POSTGRES_DB: massvision_reap3r
+      POSTGRES_USER: massvision
+      POSTGRES_PASSWORD: massvision_dev_2024
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./apps/backend/src/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U massvision -d massvision_reap3r"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - massvision
+
+  # ═══════════════════════════════════════════════════════════
+  # Redis
+  # ═══════════════════════════════════════════════════════════
+  redis:
+    image: redis:7-alpine
+    container_name: massvision-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - massvision
+
+  # ═══════════════════════════════════════════════════════════
+  # Backend API
+  # ═══════════════════════════════════════════════════════════
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: massvision-backend
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://massvision:massvision_dev_2024@postgres:5432/massvision_reap3r
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-jwt-secret-change-in-production-2024
+      JWT_REFRESH_SECRET: dev-jwt-refresh-secret-change-in-production-2024
+      HMAC_SECRET: dev-hmac-secret-for-agent-signing-2024
+      CORS_ORIGIN: http://localhost:3000
+      LOG_LEVEL: debug
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - massvision
+
+  # ═══════════════════════════════════════════════════════════
+  # Frontend
+  # ═══════════════════════════════════════════════════════════
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    container_name: massvision-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_WS_URL: ws://localhost:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - massvision
+
+  # ═══════════════════════════════════════════════════════════
+  # Prometheus (Monitoring)
+  # ═══════════════════════════════════════════════════════════
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: massvision-prometheus
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - massvision
+
+  # ═══════════════════════════════════════════════════════════
+  # Grafana (Dashboards)
+  # ═══════════════════════════════════════════════════════════
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: massvision-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: massvision
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - massvision
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  massvision:
+    driver: bridge

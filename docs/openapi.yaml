@@ -1,0 +1,645 @@
+openapi: '3.0.3'
+info:
+  title: MASSVISION Reap3r API
+  description: Enterprise Hypervision & Remote Operations Platform
+  version: '1.0.0'
+  contact:
+    name: MASSVISION Team
+    email: support@massvision.io
+
+servers:
+  - url: http://localhost:4000
+    description: Development
+  - url: https://api.reap3r.massvision.io
+    description: Production
+
+tags:
+  - name: Auth
+    description: Authentication & authorization
+  - name: Agents
+    description: Machine agent management
+  - name: Jobs
+    description: Remote job execution
+  - name: Dashboard
+    description: Dashboard statistics
+  - name: Agent Protocol V2
+    description: Agent-to-server communication (HMAC-signed)
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ═══════════════════════════════════════
+  # Auth
+  # ═══════════════════════════════════════
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      access_token:
+                        type: string
+                      refresh_token:
+                        type: string
+                      user:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '423':
+          description: Account locked
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Tokens refreshed
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      responses:
+        '200':
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      responses:
+        '200':
+          description: Logged out
+
+  # ═══════════════════════════════════════
+  # Agents
+  # ═══════════════════════════════════════
+  /api/agents:
+    get:
+      tags: [Agents]
+      summary: List all agents
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [online, offline, degraded, updating]
+        - name: os
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Agent'
+
+  /api/agents/{id}:
+    get:
+      tags: [Agents]
+      summary: Get agent details
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Agent details
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Agents]
+      summary: Delete agent
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Agent deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/agents/{id}/metrics:
+    get:
+      tags: [Agents]
+      summary: Get agent metrics history
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1h, 6h, 24h, 7d, 30d]
+            default: 1h
+      responses:
+        '200':
+          description: Metrics timeseries
+
+  /api/agents/{id}/inventory/latest:
+    get:
+      tags: [Agents]
+      summary: Get latest inventory snapshot
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Latest inventory data
+
+  # ═══════════════════════════════════════
+  # Jobs
+  # ═══════════════════════════════════════
+  /api/jobs:
+    get:
+      tags: [Jobs]
+      summary: List jobs
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of jobs
+    post:
+      tags: [Jobs]
+      summary: Create a new job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, type, payload]
+              properties:
+                agent_id:
+                  type: string
+                  format: uuid
+                type:
+                  type: string
+                  description: Job type (e.g., run_script, reboot)
+                payload:
+                  type: object
+                  description: Job-type-specific payload
+                timeout_sec:
+                  type: integer
+                  default: 300
+                priority:
+                  type: string
+                  enum: [low, normal, high, critical]
+                  default: normal
+      responses:
+        '201':
+          description: Job created
+        '400':
+          description: Invalid request
+        '404':
+          description: Agent not found or offline
+
+  /api/jobs/{id}:
+    get:
+      tags: [Jobs]
+      summary: Get job details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job details
+
+  /api/jobs/{id}/result:
+    get:
+      tags: [Jobs]
+      summary: Get job result
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job result with stdout/stderr
+
+  /api/jobs/{id}/cancel:
+    post:
+      tags: [Jobs]
+      summary: Cancel a job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job cancelled
+
+  # ═══════════════════════════════════════
+  # Dashboard
+  # ═══════════════════════════════════════
+  /api/dashboard/stats:
+    get:
+      tags: [Dashboard]
+      summary: Get dashboard statistics
+      responses:
+        '200':
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents_online:
+                    type: integer
+                  agents_offline:
+                    type: integer
+                  agents_degraded:
+                    type: integer
+                  jobs_today:
+                    type: integer
+                  jobs_success:
+                    type: integer
+                  jobs_failed:
+                    type: integer
+                  jobs_pending:
+                    type: integer
+                  active_sessions:
+                    type: integer
+
+  /api/audit-logs:
+    get:
+      tags: [Dashboard]
+      summary: Get audit logs
+      parameters:
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Audit log entries
+
+  # ═══════════════════════════════════════
+  # Agent Protocol V2
+  # ═══════════════════════════════════════
+  /agent/v2/enroll:
+    post:
+      tags: [Agent Protocol V2]
+      summary: Enroll a new agent
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequest'
+      responses:
+        '201':
+          description: Agent enrolled
+        '400':
+          description: Invalid enrollment token
+
+  /agent/v2/heartbeat:
+    post:
+      tags: [Agent Protocol V2]
+      summary: Agent heartbeat
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentEnvelope'
+      responses:
+        '200':
+          description: Heartbeat acknowledged
+
+  /agent/v2/metrics:
+    post:
+      tags: [Agent Protocol V2]
+      summary: Report system metrics
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentEnvelope'
+      responses:
+        '200':
+          description: Metrics received
+
+  /agent/v2/inventory:
+    post:
+      tags: [Agent Protocol V2]
+      summary: Report system inventory
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentEnvelope'
+      responses:
+        '200':
+          description: Inventory received
+
+  /agent/v2/job-result:
+    post:
+      tags: [Agent Protocol V2]
+      summary: Report job result
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentEnvelope'
+      responses:
+        '200':
+          description: Result received
+
+  /agent/v2/jobs/next:
+    post:
+      tags: [Agent Protocol V2]
+      summary: Poll for next pending job
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentEnvelope'
+      responses:
+        '200':
+          description: Job returned
+        '204':
+          description: No pending jobs
+
+  # ═══════════════════════════════════════
+  # Health
+  # ═══════════════════════════════════════
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      security: []
+      responses:
+        '200':
+          description: Prometheus text format
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    AgentId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+        meta:
+          type: object
+          properties:
+            total:
+              type: integer
+            page:
+              type: integer
+            limit:
+              type: integer
+
+    ApiError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        code:
+          type: string
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        full_name:
+          type: string
+        role_name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        hostname:
+          type: string
+        os:
+          type: string
+        os_version:
+          type: string
+        ip_address:
+          type: string
+        status:
+          type: string
+          enum: [online, offline, degraded, updating]
+        agent_version:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        last_seen:
+          type: string
+          format: date-time
+        enrolled_at:
+          type: string
+          format: date-time
+
+    EnrollmentRequest:
+      type: object
+      required: [enrollment_token, hostname, os, agent_version, capabilities]
+      properties:
+        enrollment_token:
+          type: string
+        hostname:
+          type: string
+        os:
+          type: string
+        os_version:
+          type: string
+        arch:
+          type: string
+        agent_version:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        ip_address:
+          type: string
+        mac_address:
+          type: string
+
+    AgentEnvelope:
+      type: object
+      required: [agent_id, ts, nonce, type, payload, hmac]
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        ts:
+          type: integer
+          description: Unix timestamp (seconds)
+        nonce:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [heartbeat, metrics, inventory, job_result, job_poll]
+        payload:
+          type: object
+        hmac:
+          type: string
+          description: HMAC-SHA256 hex signature
