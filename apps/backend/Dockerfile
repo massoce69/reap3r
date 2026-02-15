@@ -8,14 +8,14 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy workspace root files
-COPY ../../package.json ../../package-lock.json* ./
-COPY ../../tsconfig.base.json ./
+COPY package.json package-lock.json* ./
+COPY tsconfig.base.json ./
 
 # Copy shared package
-COPY ../../packages/shared ./packages/shared
+COPY packages/shared ./packages/shared
 
 # Copy backend
-COPY . ./apps/backend
+COPY apps/backend ./apps/backend
 
 # Install dependencies
 RUN npm install --workspace=apps/backend --include-workspace-root
@@ -25,7 +25,7 @@ RUN npm run build -w packages/shared 2>/dev/null || true
 
 # Build backend
 WORKDIR /app/apps/backend
-RUN npx tsc --outDir dist
+RUN npx tsc
 
 # Stage 2: Production
 FROM node:20-alpine AS production
